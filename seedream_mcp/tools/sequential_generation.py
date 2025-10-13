@@ -4,14 +4,11 @@ Seedream 4.0 MCP工具 - 组图生成工具
 实现连续生成多张图像功能，支持自动保存到本地。
 """
 
-import asyncio
 from typing import Any, Dict, List, Optional
-from pathlib import Path
 from mcp.types import Tool, TextContent
 
 from ..client import SeedreamClient
 from ..config import SeedreamConfig, get_global_config
-from ..utils.errors import SeedreamMCPError
 from ..utils.logging import get_logger
 from ..utils.auto_save import AutoSaveManager, AutoSaveResult
 
@@ -37,14 +34,12 @@ sequential_generation_tool = Tool(
             },
             "size": {
                 "type": "string",
-                "description": "生成图像的尺寸",
-                "enum": ["1K", "2K", "4K"],
-                "default": "2K"
+                "description": "生成图像的尺寸，如果不指定则使用配置文件中的默认值",
+                "enum": ["1K", "2K", "4K"]
             },
             "watermark": {
                 "type": "boolean",
-                "description": "是否在生成的图像上添加水印",
-                "default": True
+                "description": "是否在生成的图像上添加水印，如果不指定则使用配置文件中的默认值"
             },
             "response_format": {
                 "type": "string",
@@ -87,18 +82,20 @@ async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextCo
         
     Returns:
         MCP响应内容
-        
-    Raises:
-        SeedreamMCPError: 处理失败时抛出
     """
     logger = get_logger(__name__)
     
     try:
-        # 提取基本参数
+        # 获取配置
+        config = get_global_config()
+        
+        # 提取参数，按优先级：调用参数 > 配置文件默认值 > 方法默认值
         prompt = arguments.get("prompt")
         max_images = arguments.get("max_images", 4)
-        size = arguments.get("size", "2K")
-        watermark = arguments.get("watermark", True)
+        size = arguments.get("size") or config.default_size
+        watermark = arguments.get("watermark")
+        if watermark is None:
+            watermark = config.default_watermark
         response_format = arguments.get("response_format", "url")
         image = arguments.get("image")
         
@@ -139,9 +136,6 @@ async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextCo
                 return [TextContent(type="text", text="错误：image参数必须是字符串或字符串数组")]
         
         logger.info(f"开始处理组图生成请求: prompt='{prompt[:50]}...', max_images={max_images}, size={size}")
-        
-        # 获取配置
-        config = get_global_config()
         
         # 确定是否启用自动保存
         enable_auto_save = auto_save if auto_save is not None else config.auto_save_enabled

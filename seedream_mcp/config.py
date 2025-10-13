@@ -6,7 +6,7 @@ Seedream 4.0 MCP工具配置管理模块
 
 import os
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
 
