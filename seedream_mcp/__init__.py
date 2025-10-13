@@ -20,12 +20,8 @@ from .config import SeedreamConfig
 from .client import SeedreamClient
 from .server import SeedreamMCPServer
 
-# 为了兼容性，添加模块自引用
-import seedream_mcp as seedream_mcp
-
 __all__ = [
     "SeedreamConfig",
     "SeedreamClient", 
     "SeedreamMCPServer",
-    "seedream_mcp",
 ]

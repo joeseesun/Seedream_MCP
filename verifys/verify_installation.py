@@ -9,9 +9,9 @@ Seedream 4.0 MCP工具安装验证脚本
     python verify_installation.py
 """
 
-import sys
-import os
 import importlib
+import os
+import sys
 from pathlib import Path
 from typing import List
 
@@ -157,8 +157,19 @@ class InstallationVerifier:
         # 添加项目根目录到Python路径
         sys.path.insert(0, str(self.project_root))
         
+        all_imported = True
+        
+        # 首先测试主模块导入
+        try:
+            import seedream_mcp
+            print("✅ seedream_mcp 模块导入")
+        except ImportError as e:
+            self.errors.append(f"无法导入主模块 seedream_mcp: {e}")
+            print(f"❌ seedream_mcp 模块导入: {e}")
+            all_imported = False
+        
+        # 测试具体的类和函数导入
         modules_to_test = [
-            ('seedream_mcp', 'seedream_mcp'),
             ('seedream_mcp.config', 'SeedreamConfig'),
             ('seedream_mcp.client', 'SeedreamClient'),
             ('seedream_mcp.server', 'SeedreamMCPServer'),
@@ -166,8 +177,6 @@ class InstallationVerifier:
             ('seedream_mcp.utils.logging', 'setup_logging'),
             ('seedream_mcp.utils.validation', 'validate_prompt'),
         ]
-        
-        all_imported = True
         
         for module_name, class_name in modules_to_test:
             try:
