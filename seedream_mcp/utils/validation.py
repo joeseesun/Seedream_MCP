@@ -4,11 +4,9 @@ Seedream 4.0 MCP工具 - 参数验证模块
 提供各种参数验证函数。
 """
 
-import re
-import os
-from typing import List, Optional, Union
-from urllib.parse import urlparse
 from pathlib import Path
+from typing import List, Union, Any
+from urllib.parse import urlparse
 
 from .errors import SeedreamValidationError
 
@@ -33,7 +31,7 @@ def validate_prompt(prompt: str, max_length: int = 600) -> str:
     if not prompt:
         raise SeedreamValidationError("提示词不能为空", field="prompt", value=prompt)
     
-    # 检查长度（简单的字符数检查）
+    # 检查长度
     if len(prompt) > max_length:
         raise SeedreamValidationError(
             f"提示词过长，建议不超过{max_length}个字符（当前{len(prompt)}个字符）",
@@ -145,7 +143,7 @@ def validate_image_list(images: List[str], min_count: int = 1, max_count: int = 
     return validated_images
 
 
-def validate_max_images(max_images: int) -> int:
+def validate_max_images(max_images: Any) -> int:
     """验证最大图像数量
     
     Args:
@@ -184,7 +182,7 @@ def validate_max_images(max_images: int) -> int:
     return max_images
 
 
-def validate_watermark(watermark: Union[bool, str]) -> bool:
+def validate_watermark(watermark: Any) -> bool:
     """验证水印参数
     
     Args:
