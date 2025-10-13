@@ -4,7 +4,6 @@ Seedream 4.0 MCP工具 - 日志配置模块
 配置日志记录功能，支持控制台和文件输出。
 """
 
-import os
 import sys
 import logging
 from typing import Optional
