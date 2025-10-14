@@ -5,6 +5,7 @@ Seedream 4.0 MCP工具 - 组图生成工具
 """
 
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 from mcp.types import Tool, TextContent
 
 from ..client import SeedreamClient
@@ -202,7 +203,17 @@ async def _handle_auto_save(
         自动保存结果列表
     """
     # 初始化自动保存管理器
-    auto_save_manager = AutoSaveManager(config)
+    base_dir = Path(save_path) if save_path else (
+        Path(config.auto_save_base_dir) if config.auto_save_base_dir else None
+    )
+    
+    auto_save_manager = AutoSaveManager(
+        base_dir=base_dir,
+        download_timeout=config.auto_save_download_timeout,
+        max_retries=config.auto_save_max_retries,
+        max_file_size=config.auto_save_max_file_size,
+        max_concurrent=config.auto_save_max_concurrent
+    )
     
     # 提取图片URL
     image_urls = []
@@ -226,7 +237,7 @@ async def _handle_auto_save(
     
     # 执行批量保存
     return await auto_save_manager.save_multiple_images(
-        image_data, save_path
+        image_data, "sequential_generation"
     )
 
 

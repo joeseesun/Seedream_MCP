@@ -3,13 +3,13 @@
 实现智能文件命名、目录管理、路径安全检查
 """
 
-import os
 import hashlib
+import logging
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +31,19 @@ class FileManager:
         """
         if base_dir is None:
             base_dir = Path.cwd() / "images"
+        else:
+            # 验证用户提供的路径
+            try:
+                base_dir = Path(base_dir).resolve()
+                # 基本安全检查
+                if self._is_unsafe_path(base_dir):
+                    logger.warning(f"提供的保存路径不安全: {base_dir}，使用默认路径")
+                    base_dir = Path.cwd() / "images"
+            except (OSError, ValueError) as e:
+                logger.warning(f"解析保存路径时出错: {e}，使用默认路径")
+                base_dir = Path.cwd() / "images"
         
-        self.base_dir = Path(base_dir).resolve()
+        self.base_dir = base_dir
         self.ensure_directory(self.base_dir)
     
     def ensure_directory(self, path: Path) -> None:
@@ -51,22 +62,46 @@ class FileManager:
         except OSError as e:
             raise FileManagerError(f"创建目录失败: {path} -> {e}")
     
+    def _is_unsafe_path(self, path: Path) -> bool:
+        """
+        检查路径是否不安全
+        
+        Args:
+            path: 要检查的路径
+            
+        Returns:
+            路径是否不安全
+        """
+        try:
+            # 检查是否包含危险的路径遍历
+            path_str = str(path)
+            if '..' in path.parts or path_str.startswith('\\\\') or ':' in path.name:
+                return True
+            
+            # 检查路径长度
+            if len(str(path)) > 260:  # Windows路径长度限制
+                return True
+            
+            return False
+        except Exception:
+            return True
+
     def validate_path(self, path: Path) -> bool:
         """
-        验证路径安全性
+        验证路径是否在基础目录范围内
         
         Args:
             path: 要验证的路径
             
         Returns:
-            路径是否安全
+            路径是否在基础目录范围内
         """
         try:
             # 解析绝对路径
             abs_path = path.resolve()
             base_abs = self.base_dir.resolve()
             
-            # 检查路径是否在基础目录内
+            # 检查路径是否在基础目录内（沙盒验证）
             try:
                 abs_path.relative_to(base_abs)
                 return True
@@ -293,11 +328,24 @@ class FileManager:
         Returns:
             Markdown引用字符串
         """
-        # 使用相对路径
-        relative_path = self.get_relative_path(file_path)
+        # 获取相对于当前工作目录的路径
+        try:
+            # 尝试获取相对于当前工作目录的路径
+            cwd = Path.cwd()
+            relative_path = str(file_path.relative_to(cwd))
+        except ValueError:
+            # 如果文件不在当前工作目录下，使用相对于基础目录的路径
+            relative_path = self.get_relative_path(file_path)
+            # 添加基础目录名称
+            base_dir_name = self.base_dir.name
+            relative_path = f"{base_dir_name}/{relative_path}"
         
-        # 转换为正斜杠（Markdown标准）
+        # 转换为正斜杠
         markdown_path = relative_path.replace('\\', '/')
+        
+        # 添加相对路径前缀
+        if not markdown_path.startswith('./'):
+            markdown_path = './' + markdown_path
         
         # 生成Markdown引用
         if alt_text:
