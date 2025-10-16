@@ -17,11 +17,13 @@ from mcp.types import TextContent, Tool
 from .client import SeedreamClient
 from .config import SeedreamConfig
 from .tools import (
+    browse_images_tool,
     image_to_image_tool,
     multi_image_fusion_tool,
     sequential_generation_tool,
     text_to_image_tool,
 )
+from .tools.browse_images import handle_browse_images
 from .tools.image_to_image import handle_image_to_image
 from .tools.multi_image_fusion import handle_multi_image_fusion
 from .tools.sequential_generation import handle_sequential_generation
@@ -65,6 +67,7 @@ class SeedreamMCPServer:
             List[Tool]: 包含所有注册工具的列表
         """
         return [
+            browse_images_tool,
             text_to_image_tool,
             image_to_image_tool,
             multi_image_fusion_tool,
@@ -109,7 +112,9 @@ class SeedreamMCPServer:
                 self.logger.info(f"调用工具: {tool_name}, 参数: {arguments}")
 
                 # 路由到对应工具处理器
-                if tool_name == "seedream_text_to_image":
+                if tool_name == "seedream_browse_images":
+                    content = await handle_browse_images(arguments)
+                elif tool_name == "seedream_text_to_image":
                     content = await handle_text_to_image(arguments)
                 elif tool_name == "seedream_image_to_image":
                     content = await handle_image_to_image(arguments)

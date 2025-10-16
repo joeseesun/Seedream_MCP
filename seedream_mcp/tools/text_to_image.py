@@ -17,7 +17,7 @@ from ..utils.auto_save import AutoSaveManager
 # 工具定义
 text_to_image_tool = Tool(
     name="seedream_text_to_image",
-    description="使用Seedream 4.0根据文本提示词生成图像，支持自动保存到本地",
+    description="使用Seedream 4.0根据文本提示词生成图像",
     inputSchema={
         "type": "object",
         "properties": {

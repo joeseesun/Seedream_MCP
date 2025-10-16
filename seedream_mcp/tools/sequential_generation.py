@@ -17,13 +17,13 @@ from ..utils.auto_save import AutoSaveManager, AutoSaveResult
 # 工具定义
 sequential_generation_tool = Tool(
     name="seedream_sequential_generation",
-    description="使用Seedream 4.0连续生成多张图像（组图生成），支持3种输入类型：文生组图、单图生组图、多图生组图，支持自动保存到本地",
+    description="使用Seedream 4.0连续生成多张图像（组图生成），支持3种输入类型：文生组图、单图生组图、多图生组图",
     inputSchema={
         "type": "object",
         "properties": {
             "prompt": {
                 "type": "string",
-                "description": "图像生成的文本提示词，建议不超过600个字符",
+                "description": "图像生成的文本提示词，应明确指明生成数量和每一幅图的具体内容描述，建议不超过600个字符",
                 "maxLength": 600
             },
             "max_images": {

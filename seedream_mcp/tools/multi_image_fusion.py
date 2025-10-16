@@ -17,13 +17,13 @@ from ..utils.auto_save import AutoSaveManager, AutoSaveResult
 # 工具定义
 multi_image_fusion_tool = Tool(
     name="seedream_multi_image_fusion",
-    description="使用Seedream 4.0将多张图像融合生成新图像，支持自动保存到本地",
+    description="使用Seedream 4.0将多张图像融合生成新图像",
     inputSchema={
         "type": "object",
         "properties": {
             "prompt": {
                 "type": "string",
-                "description": "图像生成的文本提示词，建议不超过600个字符",
+                "description": "具体的图像融合要求或风格指令，描述你希望如何融合多张图像以及期望的最终效果，而不是描述原图像的内容。建议不超过600个字符",
                 "maxLength": 600
             },
             "images": {

@@ -17,13 +17,13 @@ from ..utils.auto_save import AutoSaveManager
 # 工具定义
 image_to_image_tool = Tool(
     name="seedream_image_to_image",
-    description="使用Seedream 4.0根据输入图像和文本提示词生成新图像，支持自动保存到本地",
+    description="使用Seedream 4.0根据输入图像和文本提示词生成新图像",
     inputSchema={
         "type": "object",
         "properties": {
             "prompt": {
                 "type": "string",
-                "description": "图像生成的文本提示词，建议不超过600个字符",
+                "description": "具体的图像修改要求或风格转换指令，描述你希望如何改变原图像，而不是描述原图像的内容。建议不超过600个字符",
                 "maxLength": 600
             },
             "image": {
