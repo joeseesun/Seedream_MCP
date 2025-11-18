@@ -62,11 +62,15 @@ text_to_image_tool = Tool(
 )
 
 
-async def handle_text_to_image(arguments: Dict[str, Any]) -> List[Union[TextContent, ImageContent]]:
+async def handle_text_to_image(
+    arguments: Dict[str, Any],
+    client: Optional[SeedreamClient] = None
+) -> List[Union[TextContent, ImageContent]]:
     """处理文生图请求
 
     Args:
         arguments: 工具参数
+        client: 可选的SeedreamClient实例（如果提供则复用，否则创建临时client）
 
     Returns:
         MCP响应内容
@@ -111,14 +115,26 @@ async def handle_text_to_image(arguments: Dict[str, Any]) -> List[Union[TextCont
         # 如果是 image 格式，需要从 API 获取 URL 然后下载
         api_format = "url" if response_format == "image" else response_format
 
-        # 创建客户端并调用API
-        async with SeedreamClient(config) as client:
+        # 使用传入的client或创建临时client
+        if client is not None:
+            # 复用server的client（推荐）
+            logger.debug("使用server提供的共享client")
             result = await client.text_to_image(
                 prompt=prompt,
                 size=size,
                 watermark=watermark,
                 response_format=api_format
             )
+        else:
+            # 创建临时client（向后兼容）
+            logger.debug("创建临时client（向后兼容模式）")
+            async with SeedreamClient(config) as temp_client:
+                result = await temp_client.text_to_image(
+                    prompt=prompt,
+                    size=size,
+                    watermark=watermark,
+                    response_format=api_format
+                )
 
         # 处理自动保存
         auto_save_results = []

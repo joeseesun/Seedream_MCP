@@ -67,11 +67,12 @@ image_to_image_tool = Tool(
 )
 
 
-async def handle_image_to_image(arguments: Dict[str, Any]) -> List[Union[TextContent, ImageContent]]:
+async def handle_image_to_image(arguments: Dict[str, Any], client: Optional[SeedreamClient] = None) -> List[Union[TextContent, ImageContent]]:
     """处理图生图请求
 
     Args:
         arguments: 工具参数
+        client: 可选的SeedreamClient实例（如果提供则复用，否则创建临时client）
 
     Returns:
         MCP响应内容
@@ -103,7 +104,10 @@ async def handle_image_to_image(arguments: Dict[str, Any]) -> List[Union[TextCon
         api_format = "url" if response_format == "image" else response_format
 
         # 创建客户端并调用API
-        async with SeedreamClient(config) as client:
+        # 使用传入的client或创建临时client
+        if client is not None:
+            # 复用server的client（推荐）
+            logger.debug("使用server提供的共享client")
             result = await client.image_to_image(
                 prompt=prompt,
                 image=image,
@@ -111,6 +115,17 @@ async def handle_image_to_image(arguments: Dict[str, Any]) -> List[Union[TextCon
                 watermark=watermark,
                 response_format=api_format
             )
+        else:
+            # 创建临时client（向后兼容）
+            logger.debug("创建临时client（向后兼容模式）")
+            async with SeedreamClient(config) as temp_client:
+                result = await temp_client.image_to_image(
+                    prompt=prompt,
+                    image=image,
+                    size=size,
+                    watermark=watermark,
+                    response_format=api_format
+                )
 
         # 初始化自动保存结果
         auto_save_results = []

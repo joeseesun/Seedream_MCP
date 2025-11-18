@@ -115,16 +115,17 @@ class SeedreamMCPServer:
                 self.logger.info(f"调用工具: {tool_name}, 参数: {arguments}")
 
                 # 路由到对应工具处理器
+                # 传递server的client实例给tools，实现连接复用
                 if tool_name == "seedream_browse_images":
                     content = await handle_browse_images(arguments)
                 elif tool_name == "seedream_text_to_image":
-                    content = await handle_text_to_image(arguments)
+                    content = await handle_text_to_image(arguments, client=self.client)
                 elif tool_name == "seedream_image_to_image":
-                    content = await handle_image_to_image(arguments)
+                    content = await handle_image_to_image(arguments, client=self.client)
                 elif tool_name == "seedream_multi_image_fusion":
-                    content = await handle_multi_image_fusion(arguments)
+                    content = await handle_multi_image_fusion(arguments, client=self.client)
                 elif tool_name == "seedream_sequential_generation":
-                    content = await handle_sequential_generation(arguments)
+                    content = await handle_sequential_generation(arguments, client=self.client)
                 elif tool_name == "seedream_prompt_templates":
                     content = await handle_prompt_templates(arguments)
                 else:

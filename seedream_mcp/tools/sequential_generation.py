@@ -76,11 +76,12 @@ sequential_generation_tool = Tool(
 )
 
 
-async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextContent]:
+async def handle_sequential_generation(arguments: Dict[str, Any], client: Optional[SeedreamClient] = None) -> List[TextContent]:
     """处理组图生成请求
     
     Args:
         arguments: 工具参数
+        client: 可选的SeedreamClient实例（如果提供则复用，否则创建临时client）
         
     Returns:
         MCP响应内容
@@ -172,7 +173,10 @@ async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextCo
         enable_auto_save = auto_save if auto_save is not None else config.auto_save_enabled
         
         # 创建客户端并调用API
-        async with SeedreamClient(config) as client:
+        # 使用传入的client或创建临时client
+        if client is not None:
+            # 复用server的client（推荐）
+            logger.debug("使用server提供的共享client")
             result = await client.sequential_generation(
                 prompt=prompt,
                 max_images=max_images,
@@ -181,7 +185,19 @@ async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextCo
                 response_format=response_format,
                 image=image
             )
-        
+        else:
+            # 创建临时client（向后兼容）
+            logger.debug("创建临时client（向后兼容模式）")
+            async with SeedreamClient(config) as temp_client:
+                result = await temp_client.sequential_generation(
+                    prompt=prompt,
+                    max_images=max_images,
+                    size=size,
+                    watermark=watermark,
+                    response_format=response_format,
+                    image=image
+                )
+
         # 初始化自动保存结果
         auto_save_results = []
         
