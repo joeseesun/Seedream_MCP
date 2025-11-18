@@ -15,14 +15,12 @@ logger = logging.getLogger(__name__)
 # 预定义的提示词模板
 PROMPT_TEMPLATES = {
     "公众号封面": {
-        "template": """根据内容主题自动匹配关键词和设计风格。
+        "template": """主题内容：{keyword}
 
-关键词符合纸雕风格融合水彩层次美学，字体结构立体精致如水彩纸雕工艺，边缘细腻带水彩渐变与阴影效果，柔和红色与淡蓝水彩背景中营造纸艺空间，点缀立体几何图形与水彩装饰元素，文字表面呈现高级纸张与水彩光泽质感，字形排列层次分明如精美纸雕作品，整体营造出精致工艺与艺术学习的优雅层次，温和而富有艺术感的教学氛围中透出水彩的精致美感，高级水彩工艺视觉
-
-主题内容：{keyword}
-画面比例：21:9 超宽屏构图，横向延展""",
+纸雕风格融合水彩层次美学，字体结构立体精致如水彩纸雕工艺，边缘细腻带水彩渐变与阴影效果，柔和红色与淡蓝水彩背景中营造纸艺空间，点缀立体几何图形与水彩装饰元素，文字表面呈现高级纸张与水彩光泽质感，字形排列层次分明如精美纸雕作品，整体营造出精致工艺与艺术学习的优雅层次，温和而富有艺术感的氛围中透出水彩的精致美感，高级水彩工艺视觉，横向延展构图""",
         "default_size": "2K",
-        "description": "公众号封面风格 - 纸雕水彩美学 (21:9超宽屏)"
+        "aspect_ratio": "21:9",
+        "description": "封面风格 - 纸雕水彩美学 (21:9超宽屏)"
     },
 
     "潮流派对": {
@@ -173,13 +171,21 @@ def apply_template(template_name: str, keyword: str) -> Tuple[str, Optional[str]
     template_config = PROMPT_TEMPLATES[template_name]
     template = template_config["template"]
     default_size = template_config.get("default_size")
-    
+    aspect_ratio = template_config.get("aspect_ratio")
+
     # 格式化模板
     formatted_prompt = template.format(keyword=keyword)
-    
+
+    # 如果模板指定了 aspect_ratio,在提示词末尾添加比例信息
+    # 使用特殊格式,让 AI 理解这是参数而不是要渲染的文本
+    if aspect_ratio:
+        formatted_prompt = f"{formatted_prompt}\n\nratio: {aspect_ratio}"
+
     logger.info(f"应用模板 '{template_name}', 关键词: '{keyword}'")
+    if aspect_ratio:
+        logger.info(f"指定画面比例: {aspect_ratio}")
     logger.debug(f"格式化后的提示词: {formatted_prompt[:100]}...")
-    
+
     return formatted_prompt, default_size
 
 

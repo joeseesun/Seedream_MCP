@@ -80,7 +80,11 @@ async def create_image_content_response(
             text_parts.append("**📸 图片预览:**")
             text_parts.append("")  # 空行
             for i, url in enumerate(qiniu_urls, 1):
+                # 添加多种格式,确保至少一种能被渲染
                 text_parts.append(f"![图片{i}]({url})")
+                text_parts.append("")  # 空行
+                # 同时添加纯链接,方便点击
+                text_parts.append(f"🔗 点击查看: {url}")
                 text_parts.append("")  # 空行
 
         # 添加详细信息
