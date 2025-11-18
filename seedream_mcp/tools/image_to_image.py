@@ -4,20 +4,23 @@ Seedream 4.0 MCP工具 - 图生图工具
 实现图像到图像生成功能，支持自动保存生成的图片到本地。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
-from mcp.types import Tool, TextContent
+import base64
+import httpx
+from mcp.types import Tool, TextContent, ImageContent
 
 from ..client import SeedreamClient
 from ..config import SeedreamConfig, get_global_config
 from ..utils.logging import get_logger
 from ..utils.auto_save import AutoSaveManager
+from .image_helpers import create_image_content_response
 
 
 # 工具定义
 image_to_image_tool = Tool(
     name="seedream_image_to_image",
-    description="使用Seedream 4.0根据输入图像和文本提示词生成新图像",
+    description="使用Seedream 4.0根据输入图像和文本提示词生成【单张】新图像（图生图）。如果需要基于一张图生成多张变体，请使用 seedream_sequential_generation 工具",
     inputSchema={
         "type": "object",
         "properties": {
@@ -41,9 +44,9 @@ image_to_image_tool = Tool(
             },
             "response_format": {
                 "type": "string",
-                "description": "响应格式：url返回图像URL，b64_json返回base64编码",
-                "enum": ["url", "b64_json"],
-                "default": "url"
+                "description": "响应格式：url返回图像URL，b64_json返回base64编码，image返回MCP ImageContent（直接显示图片）",
+                "enum": ["url", "b64_json", "image"],
+                "default": "image"
             },
             "auto_save": {
                 "type": "boolean",
@@ -64,21 +67,21 @@ image_to_image_tool = Tool(
 )
 
 
-async def handle_image_to_image(arguments: Dict[str, Any]) -> List[TextContent]:
+async def handle_image_to_image(arguments: Dict[str, Any]) -> List[Union[TextContent, ImageContent]]:
     """处理图生图请求
-    
+
     Args:
         arguments: 工具参数
-        
+
     Returns:
         MCP响应内容
     """
     logger = get_logger(__name__)
-    
+
     try:
         # 获取配置
         config = get_global_config()
-        
+
         # 提取参数，按优先级：调用参数 > 配置文件默认值 > 方法默认值
         prompt = arguments.get("prompt")
         image = arguments.get("image")
@@ -86,16 +89,19 @@ async def handle_image_to_image(arguments: Dict[str, Any]) -> List[TextContent]:
         watermark = arguments.get("watermark")
         if watermark is None:
             watermark = config.default_watermark
-        response_format = arguments.get("response_format", "url")
+        response_format = arguments.get("response_format", "image")
         auto_save = arguments.get("auto_save")
         save_path = arguments.get("save_path")
         custom_name = arguments.get("custom_name")
-        
-        logger.info(f"开始处理图生图请求: prompt='{prompt[:50]}...', size={size}")
-        
+
+        logger.info(f"开始处理图生图请求: prompt='{prompt[:50]}...', size={size}, format={response_format}")
+
         # 确定是否启用自动保存
         enable_auto_save = auto_save if auto_save is not None else config.auto_save_enabled
-        
+
+        # 如果是 image 格式，需要从 API 获取 URL 然后下载
+        api_format = "url" if response_format == "image" else response_format
+
         # 创建客户端并调用API
         async with SeedreamClient(config) as client:
             result = await client.image_to_image(
@@ -103,22 +109,22 @@ async def handle_image_to_image(arguments: Dict[str, Any]) -> List[TextContent]:
                 image=image,
                 size=size,
                 watermark=watermark,
-                response_format=response_format
+                response_format=api_format
             )
-        
+
         # 初始化自动保存结果
         auto_save_results = []
-        
+
         # 如果启用自动保存且API调用成功，执行自动保存
         if enable_auto_save and result.get("success"):
             try:
-                if response_format == "url":
+                if api_format == "url":
                     auto_save_results = await _handle_auto_save(
                         result, prompt, config, save_path, custom_name
                     )
                     if auto_save_results:
                         result = _update_result_with_auto_save(result, auto_save_results)
-                elif response_format == "b64_json":
+                elif api_format == "b64_json":
                     auto_save_results = await _handle_auto_save_base64(
                         result, prompt, config, save_path, custom_name
                     )
@@ -126,15 +132,21 @@ async def handle_image_to_image(arguments: Dict[str, Any]) -> List[TextContent]:
                         result = _update_result_with_auto_save(result, auto_save_results)
             except Exception as e:
                 logger.warning(f"自动保存失败，但继续返回原始结果: {e}")
-        
+
+        # 如果请求的是 image 格式，返回 ImageContent
+        if response_format == "image" and result.get("success"):
+            # 格式化输入图片信息
+            image_info = f"输入图像: {_format_image_path(image)}"
+            return await create_image_content_response(result, prompt, size, image_info)
+
         # 格式化响应
         response_text = _format_image_to_image_response(
             result, prompt, image, size, auto_save_results, enable_auto_save
         )
-        
+
         logger.info("图生图请求处理完成")
         return [TextContent(type="text", text=response_text)]
-        
+
     except Exception as e:
         logger.error(f"图生图请求处理失败: {str(e)}")
         error_msg = f"图生图生成失败: {str(e)}"

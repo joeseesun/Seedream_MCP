@@ -144,7 +144,17 @@ class SeedreamConfig:
                 "1. 创建.env文件并添加: ARK_API_KEY=your_actual_api_key\n"
                 "2. 设置系统环境变量: export ARK_API_KEY=your_actual_api_key"
             )
-        
+
+        # 处理自动保存目录路径 - 将相对路径转换为绝对路径
+        auto_save_base_dir = os.getenv("SEEDREAM_AUTO_SAVE_BASE_DIR")
+        if auto_save_base_dir:
+            base_dir_path = Path(auto_save_base_dir)
+            if not base_dir_path.is_absolute():
+                # 相对路径相对于项目根目录
+                project_root = Path(__file__).parent.parent
+                base_dir_path = (project_root / auto_save_base_dir).resolve()
+            auto_save_base_dir = str(base_dir_path)
+
         # 创建配置实例
         config = cls(
             api_key=api_key,
@@ -159,7 +169,7 @@ class SeedreamConfig:
             log_file=os.getenv("LOG_FILE"),
             # 自动保存配置
             auto_save_enabled=_parse_bool(os.getenv("SEEDREAM_AUTO_SAVE_ENABLED", "true")),
-            auto_save_base_dir=os.getenv("SEEDREAM_AUTO_SAVE_BASE_DIR"),
+            auto_save_base_dir=auto_save_base_dir,
             auto_save_download_timeout=_parse_int(os.getenv("SEEDREAM_AUTO_SAVE_DOWNLOAD_TIMEOUT", "30")),
             auto_save_max_retries=_parse_int(os.getenv("SEEDREAM_AUTO_SAVE_MAX_RETRIES", "3")),
             auto_save_max_file_size=_parse_int(os.getenv("SEEDREAM_AUTO_SAVE_MAX_FILE_SIZE", str(50 * 1024 * 1024))),

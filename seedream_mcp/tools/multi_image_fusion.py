@@ -12,12 +12,13 @@ from ..client import SeedreamClient
 from ..config import SeedreamConfig, get_global_config
 from ..utils.logging import get_logger
 from ..utils.auto_save import AutoSaveManager, AutoSaveResult
+from ..utils.qiniu_uploader import get_qiniu_uploader
 
 
 # 工具定义
 multi_image_fusion_tool = Tool(
     name="seedream_multi_image_fusion",
-    description="使用Seedream 4.0将多张图像融合生成新图像",
+    description="使用Seedream 4.0将多张图像融合生成【单张】新图像（多图融合）。需要提供2-10张输入图片。如果需要生成多张融合结果，请使用 seedream_sequential_generation 工具",
     inputSchema={
         "type": "object",
         "properties": {
@@ -124,12 +125,16 @@ async def handle_multi_image_fusion(arguments: Dict[str, Any]) -> List[TextConte
                     )
                     if auto_save_results:
                         result = _update_result_with_auto_save(result, auto_save_results)
+                        # 上传到七牛云
+                        await _upload_to_qiniu(auto_save_results, result)
                 elif response_format == "b64_json":
                     auto_save_results = await _handle_auto_save_base64(
                         result, prompt, config, save_path, custom_name
                     )
                     if auto_save_results:
                         result = _update_result_with_auto_save(result, auto_save_results)
+                        # 上传到七牛云
+                        await _upload_to_qiniu(auto_save_results, result)
             except Exception as e:
                 logger.warning(f"自动保存失败，但继续返回原始结果: {e}")
         
@@ -261,40 +266,69 @@ async def _handle_auto_save_base64(
         return []
 
 
+async def _upload_to_qiniu(
+    auto_save_results: List[AutoSaveResult],
+    result: Dict[str, Any]
+) -> None:
+    """上传图片到七牛云
+
+    Args:
+        auto_save_results: 自动保存结果列表
+        result: API结果（会被修改以添加七牛云URL）
+    """
+    logger = get_logger(__name__)
+    uploader = get_qiniu_uploader()
+
+    if not uploader.enabled:
+        logger.debug("七牛云未配置，跳过上传")
+        return
+
+    # 上传每个成功保存的图片
+    for i, save_result in enumerate(auto_save_results):
+        if save_result.success and save_result.local_path:
+            try:
+                qiniu_url = uploader.upload_file(str(save_result.local_path))
+                if qiniu_url and result.get("data") and i < len(result["data"]):
+                    result["data"][i]["qiniu_url"] = qiniu_url
+                    logger.info(f"图片 {i+1} 已上传到七牛云: {qiniu_url}")
+            except Exception as e:
+                logger.warning(f"图片 {i+1} 上传到七牛云失败: {e}")
+
+
 def _update_result_with_auto_save(
     result: Dict[str, Any],
     auto_save_results: List[AutoSaveResult]
 ) -> Dict[str, Any]:
     """更新结果以包含自动保存信息
-    
+
     Args:
         result: 原始API结果
         auto_save_results: 自动保存结果列表
-        
+
     Returns:
         更新后的结果
     """
     # 创建结果副本
     updated_result = result.copy()
-    
+
     # 统计保存结果
     successful_saves = sum(1 for r in auto_save_results if r.success)
     failed_saves = len(auto_save_results) - successful_saves
-    
+
     # 添加自动保存统计信息
     updated_result["auto_save_summary"] = {
         "total": len(auto_save_results),
         "successful": successful_saves,
         "failed": failed_saves
     }
-    
+
     # 为成功保存的图片添加本地路径信息
     if updated_result.get("data") and auto_save_results:
         for i, (item, save_result) in enumerate(zip(updated_result["data"], auto_save_results)):
             if save_result.success:
                 item["local_path"] = str(save_result.local_path)
                 item["markdown_ref"] = save_result.markdown_ref
-    
+
     return updated_result
 
 
@@ -350,28 +384,62 @@ def _format_multi_image_fusion_response(
         images = [data]
     
     if images:
+        # 收集七牛云 URL 用于 Markdown 显示
+        qiniu_urls = []
+        local_paths = []
+
+        for i, image in enumerate(images, 1):
+            if isinstance(image, dict):
+                # 收集七牛云 URL
+                if "qiniu_url" in image:
+                    qiniu_urls.append(image["qiniu_url"])
+
+                # 收集本地路径
+                if "local_path" in image:
+                    local_paths.append(image["local_path"])
+
+        # 显示 Markdown 图片（使用七牛云 URL）
+        if qiniu_urls:
+            for i, url in enumerate(qiniu_urls, 1):
+                response_lines.append(f"![图片{i}]({url})")
+            response_lines.append("")
+
+        # 显示详细信息
+        response_lines.append("---")
+        response_lines.append("**详细信息:**")
+        response_lines.append("")
+
         response_lines.append("🎨 融合生成的图像:")
         for i, image in enumerate(images, 1):
             if isinstance(image, dict):
-                # URL信息（如果存在）
-                if "url" in image:
-                    response_lines.append(f"  {i}. 图像URL: {image['url']}")
-                
+                # 本地路径
+                if "local_path" in image:
+                    response_lines.append(f"  {i}. 💾 本地保存: `{image['local_path']}`")
+
+                # 七牛云 URL
+                if "qiniu_url" in image:
+                    response_lines.append(f"     ☁️  七牛云: {image['qiniu_url']}")
+
+                # 原始 URL（如果没有七牛云）
+                elif "url" in image:
+                    response_lines.append(f"     🔗 原始 URL: {image['url'][:100]}...")
+
                 # Base64信息（如果存在）
                 if "b64_json" in image:
-                    response_lines.append(f"  {i}. 图像数据: [Base64编码，长度: {len(image['b64_json'])}字符]")
-                
-                # 本地路径与Markdown引用（如自动保存）
-                if "local_path" in image:
-                    response_lines.append(f"     💾 本地路径: {image['local_path']}")
-                if "markdown_ref" in image:
-                    response_lines.append(f"     📝 Markdown引用: {image['markdown_ref']}")
-                
+                    response_lines.append(f"     📦 数据: [Base64编码，长度: {len(image['b64_json'])}字符]")
+
                 # 修订提示词（如果存在）
                 if "revised_prompt" in image:
-                    response_lines.append(f"  {i}. 修订提示词: {image['revised_prompt']}")
+                    response_lines.append(f"     ✏️  修订提示词: {image['revised_prompt']}")
             else:
                 response_lines.append(f"  {i}. {str(image)}")
+
+        response_lines.append("")
+
+        # 如果没有七牛云 URL，提示配置
+        if not qiniu_urls and local_paths:
+            response_lines.append("💡 提示: 配置七牛云后可自动上传并生成公网访问链接")
+            response_lines.append("")
     
     # 添加使用统计
     if usage:

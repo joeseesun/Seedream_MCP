@@ -22,12 +22,14 @@ from .tools import (
     multi_image_fusion_tool,
     sequential_generation_tool,
     text_to_image_tool,
+    prompt_template_tool,
 )
 from .tools.browse_images import handle_browse_images
 from .tools.image_to_image import handle_image_to_image
 from .tools.multi_image_fusion import handle_multi_image_fusion
 from .tools.sequential_generation import handle_sequential_generation
 from .tools.text_to_image import handle_text_to_image
+from .tools.prompt_template_tool import handle_prompt_templates
 from .utils.errors import SeedreamMCPError
 from .utils.logging import setup_logging
 
@@ -72,6 +74,7 @@ class SeedreamMCPServer:
             image_to_image_tool,
             multi_image_fusion_tool,
             sequential_generation_tool,
+            prompt_template_tool,
         ]
 
     def _register_handlers(self):
@@ -122,6 +125,8 @@ class SeedreamMCPServer:
                     content = await handle_multi_image_fusion(arguments)
                 elif tool_name == "seedream_sequential_generation":
                     content = await handle_sequential_generation(arguments)
+                elif tool_name == "seedream_prompt_templates":
+                    content = await handle_prompt_templates(arguments)
                 else:
                     raise SeedreamMCPError(f"未知的工具: {tool_name}")
 

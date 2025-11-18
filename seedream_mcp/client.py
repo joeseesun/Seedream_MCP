@@ -324,6 +324,9 @@ class SeedreamClient:
                 "response_format": response_format
             }
 
+            # 调试日志：打印请求参数
+            self.logger.info(f"组图生成请求参数: {request_data}")
+
             # 添加图像参数
             if processed_image is not None:
                 request_data["image"] = processed_image
@@ -464,6 +467,13 @@ class SeedreamClient:
                     try:
                         result = response.json()
                         self.logger.debug(f"解析 JSON 成功: {result}")
+
+                        # 记录返回的图片数量
+                        data = result.get("data", [])
+                        if isinstance(data, list):
+                            self.logger.info(f"API 返回了 {len(data)} 张图片")
+                        else:
+                            self.logger.info(f"API 返回数据类型: {type(data)}")
                     except Exception as json_error:
                         raise SeedreamAPIError(f"JSON 解析失败: {str(json_error)}")
 

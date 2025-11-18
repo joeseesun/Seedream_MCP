@@ -12,26 +12,27 @@ from ..client import SeedreamClient
 from ..config import SeedreamConfig, get_global_config
 from ..utils.logging import get_logger
 from ..utils.auto_save import AutoSaveManager, AutoSaveResult
+from ..utils.qiniu_uploader import get_qiniu_uploader
+from ..prompt_templates import process_user_input
 
 
 # 工具定义
 sequential_generation_tool = Tool(
     name="seedream_sequential_generation",
-    description="使用Seedream 4.0连续生成多张图像（组图生成），支持3种输入类型：文生组图、单图生组图、多图生组图",
+    description="使用Seedream 4.0【批量生成多张图像】（组图生成）。当用户要求生成2张或更多图片时使用此工具。支持3种输入类型：文生组图、单图生组图、多图生组图。最多可生成15张图片",
     inputSchema={
         "type": "object",
         "properties": {
-            "prompt": {
-                "type": "string",
-                "description": "图像生成的文本提示词，应明确指明生成数量和每一幅图的具体内容描述，建议不超过600个字符",
-                "maxLength": 600
-            },
             "max_images": {
                 "type": "integer",
-                "description": "最大生成图像数量",
+                "description": "要生成的图像数量（必填）。用户说'生成4张图'时，此参数应为4",
                 "minimum": 1,
-                "maximum": 15,
-                "default": 4
+                "maximum": 15
+            },
+            "prompt": {
+                "type": "string",
+                "description": "图像内容的文本提示词（如'可口可乐'、'小猫'等）。不需要在提示词中包含数量信息，数量由 max_images 参数指定",
+                "maxLength": 600
             },
             "size": {
                 "type": "string",
@@ -70,7 +71,7 @@ sequential_generation_tool = Tool(
                 "description": "自定义文件名前缀。如果未指定，将根据提示词自动生成"
             }
         },
-        "required": ["prompt"]
+        "required": ["prompt", "max_images"]
     }
 )
 
@@ -108,9 +109,38 @@ async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextCo
         # 验证参数
         if not prompt:
             return [TextContent(type="text", text="错误：prompt参数是必需的")]
-        
+
         if max_images < 1 or max_images > 15:
             return [TextContent(type="text", text="错误：max_images必须在1-15之间")]
+
+        # ⭐ 处理提示词模板
+        original_user_input = prompt
+        processed_prompt, template_size, template_applied = process_user_input(prompt)
+
+        if template_applied:
+            logger.info(f"✨ 应用了提示词模板")
+            logger.info(f"原始输入: '{original_user_input}'")
+            logger.info(f"处理后提示词: '{processed_prompt[:100]}...'")
+            prompt = processed_prompt
+
+            # 如果模板指定了默认尺寸且用户没有指定,使用模板的默认尺寸
+            if template_size and not arguments.get("size"):
+                size = template_size
+                logger.info(f"使用模板默认尺寸: {size}")
+
+        # ⭐ 格式化 prompt: 确保明确说明要生成的数量
+        # Seedream API 的 auto 模式会根据 prompt 内容决定生成数量
+        # 如果 prompt 中没有明确说明数量,API 可能只生成1张
+        original_prompt = prompt
+        if max_images > 1:
+            # 检查 prompt 中是否已经包含数量信息
+            has_number = any(str(i) in prompt for i in range(2, 16))
+            has_keywords = any(keyword in prompt for keyword in ['张', '个', '幅', '组', '不同', '多张'])
+
+            if not (has_number and has_keywords):
+                # 如果没有明确数量信息,添加数量说明
+                prompt = f"生成{max_images}张{prompt}的图片，每张展示不同的角度、场景或风格"
+                logger.info(f"格式化 prompt: '{original_prompt}' -> '{prompt}'")
         
         if size not in ["1K", "2K", "4K"]:
             return [TextContent(type="text", text="错误：size必须是1K、2K或4K")]
@@ -164,12 +194,16 @@ async def handle_sequential_generation(arguments: Dict[str, Any]) -> List[TextCo
                     )
                     if auto_save_results:
                         result = _update_result_with_auto_save(result, auto_save_results)
+                        # 上传到七牛云
+                        await _upload_to_qiniu(auto_save_results, result)
                 elif response_format == "b64_json":
                     auto_save_results = await _handle_auto_save_base64(
                         result, prompt, config, save_path, custom_name
                     )
                     if auto_save_results:
                         result = _update_result_with_auto_save(result, auto_save_results)
+                        # 上传到七牛云
+                        await _upload_to_qiniu(auto_save_results, result)
             except Exception as e:
                 logger.warning(f"自动保存失败，但继续返回原始结果: {e}")
         
@@ -232,10 +266,12 @@ async def _handle_auto_save(
     # 准备图片数据
     image_data = []
     for i, url in enumerate(image_urls):
+        # 为每张图片生成唯一的文件名
+        unique_name = f"{custom_name}_{i+1}" if custom_name else f"{prompt}_{i+1}"
         data = {
             "url": url,
             "prompt": prompt,
-            "custom_name": custom_name
+            "custom_name": unique_name
         }
         image_data.append(data)
     
@@ -301,40 +337,69 @@ async def _handle_auto_save_base64(
         return []
 
 
+async def _upload_to_qiniu(
+    auto_save_results: List[AutoSaveResult],
+    result: Dict[str, Any]
+) -> None:
+    """上传图片到七牛云
+
+    Args:
+        auto_save_results: 自动保存结果列表
+        result: API结果（会被修改以添加七牛云URL）
+    """
+    logger = get_logger(__name__)
+    uploader = get_qiniu_uploader()
+
+    if not uploader.enabled:
+        logger.debug("七牛云未配置，跳过上传")
+        return
+
+    # 上传每个成功保存的图片
+    for i, save_result in enumerate(auto_save_results):
+        if save_result.success and save_result.local_path:
+            try:
+                qiniu_url = uploader.upload_file(str(save_result.local_path))
+                if qiniu_url and result.get("data") and i < len(result["data"]):
+                    result["data"][i]["qiniu_url"] = qiniu_url
+                    logger.info(f"图片 {i+1} 已上传到七牛云: {qiniu_url}")
+            except Exception as e:
+                logger.warning(f"图片 {i+1} 上传到七牛云失败: {e}")
+
+
 def _update_result_with_auto_save(
     result: Dict[str, Any],
     auto_save_results: List[AutoSaveResult]
 ) -> Dict[str, Any]:
     """更新结果以包含自动保存信息
-    
+
     Args:
         result: 原始API结果
         auto_save_results: 自动保存结果列表
-        
+
     Returns:
         更新后的结果
     """
     # 创建结果副本
     updated_result = result.copy()
-    
+
     # 统计保存结果
     successful_saves = sum(1 for r in auto_save_results if r.success)
     failed_saves = len(auto_save_results) - successful_saves
-    
+
     # 添加自动保存统计信息
     updated_result["auto_save_summary"] = {
         "total": len(auto_save_results),
         "successful": successful_saves,
         "failed": failed_saves
     }
-    
+
     # 为成功保存的图片添加本地路径信息
     if updated_result.get("data") and auto_save_results:
         for i, (item, save_result) in enumerate(zip(updated_result["data"], auto_save_results)):
             if save_result.success:
                 item["local_path"] = str(save_result.local_path)
                 item["markdown_ref"] = save_result.markdown_ref
-    
+
     return updated_result
 
 
@@ -385,31 +450,64 @@ def _format_sequential_generation_response(
         actual_count = len(images)
         response_lines.append(f"🎨 实际生成图像: {actual_count}张")
         response_lines.append("")
-        
+
+        # 收集七牛云 URL 用于 Markdown 显示
+        qiniu_urls = []
+        local_paths = []
+
         for i, image in enumerate(images, 1):
+            if isinstance(image, dict):
+                # 收集七牛云 URL
+                if "qiniu_url" in image:
+                    qiniu_urls.append(image["qiniu_url"])
+
+                # 收集本地路径
+                if "local_path" in image:
+                    local_paths.append(image["local_path"])
+
+        # 显示 Markdown 图片（使用七牛云 URL）
+        if qiniu_urls:
+            for i, url in enumerate(qiniu_urls, 1):
+                response_lines.append(f"![图片{i}]({url})")
+            response_lines.append("")
+
+        # 显示详细信息
+        response_lines.append("---")
+        response_lines.append("**详细信息:**")
+
+        for i, image in enumerate(images, 1):
+            response_lines.append(f"")
             response_lines.append(f"📷 图像 {i}:")
             if isinstance(image, dict):
-                # URL信息（如存在）
-                if "url" in image:
-                    response_lines.append(f"  • URL: {image['url']}")
-                
+                # 本地路径
+                if "local_path" in image:
+                    response_lines.append(f"  💾 本地保存: `{image['local_path']}`")
+
+                # 七牛云 URL
+                if "qiniu_url" in image:
+                    response_lines.append(f"  ☁️  七牛云: {image['qiniu_url']}")
+
+                # 原始 URL（如果没有七牛云）
+                elif "url" in image:
+                    response_lines.append(f"  🔗 原始 URL: {image['url'][:100]}...")
+
                 # Base64信息（如存在）
                 if "b64_json" in image:
-                    response_lines.append(f"  • 数据: [Base64编码，长度: {len(image['b64_json'])}字符]")
-                
-                # 自动保存后的本地路径与引用（如存在）
-                if "local_path" in image:
-                    response_lines.append(f"  • 💾 本地路径: {image['local_path']}")
-                if "markdown_ref" in image:
-                    response_lines.append(f"  • 📝 Markdown引用: {image['markdown_ref']}")
-                
+                    response_lines.append(f"  📦 数据: [Base64编码，长度: {len(image['b64_json'])}字符]")
+
                 # 修订提示词（如存在）
                 if "revised_prompt" in image:
-                    response_lines.append(f"  • 修订提示词: {image['revised_prompt']}")
+                    response_lines.append(f"  ✏️  修订提示词: {image['revised_prompt']}")
             else:
                 response_lines.append(f"  • {str(image)}")
+
+        response_lines.append("")
+
+        # 如果没有七牛云 URL，提示配置
+        if not qiniu_urls and local_paths:
+            response_lines.append("💡 提示: 配置七牛云后可自动上传并生成公网访问链接")
             response_lines.append("")
-        
+
         # 生成数量统计
         if actual_count != max_images:
             response_lines.append(f"ℹ️ 注意: 请求生成{max_images}张，实际生成{actual_count}张")
